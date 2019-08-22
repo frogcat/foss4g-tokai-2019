@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="UTF-8">
+  <title>04 merge</title>
+  <meta name="viewport" content="initial-scale=1.0, maximum-scale=1.0" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.5.1/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.5.1/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/zepto@1.2.0/dist/zepto.min.js"></script>
+  <script src="https://frogcat.github.io/leaflet-tilelayer-glue/leaflet-tilelayer-glue.js"></script>
+  <script src="https://unpkg.com/leaflet-hash@0.2.1/leaflet-hash.js"></script>
+  <link rel="stylesheet" href="style.css" />
+</head>
+
+<body>
+  <div id="map"></div>
+  <div id="ctrl">
+    <ul>
+      <li><label for="high">高</label><input type="range" id="high" min="0" max="4000" value="4000" /></li>
+      <li><label for="low">低</label><input type="range" id="low" min="0" max="4000" value="0" /></li>
+      <li><label for="hillshade">影</label><input type="range" id="hillshade" min="0" max="360" value="300" /></li>
+      <li><label for="koi">濃</label><input type="range" id="koi" min="0" max="100" value="25" /></li>
+      <li><label for="contour">間</label><input type="range" id="contour" min="1" max="200" /></li>
+    </ul>
+  </div>
+  <script>
+    var map = L.map("map", L.extend({
+      zoom: 10,
+      center: [35.4333, 138.8864]
+    }, L.Hash.parseHash(location.hash)));
+    map.zoomControl.setPosition("bottomright");
+    L.hash(map);
+
+    var relief = L.tileLayer.glue("https://cyberjapandata.gsi.go.jp/xyz/dem_png/{z}/{x}/{y}.png", {
+      attribution: "<a href='http://maps.gsi.go.jp/development/ichiran.html'>GSI</a>",
+      maxZoom: 16,
+      maxNativeZoom: 15,
+      fragmentShader: `precision mediump float;
+uniform sampler2D image;
+uniform vec2 unit;
+uniform float zoom;
+uniform vec4 argv;
+const vec4 rgb2alt = vec4(256 * 256, 256 , 1, 0) * 256.0 * 0.01;
+
+vec3 hue2rgb(float hue){
+  float r = abs(hue * 6.0 - 3.0) - 1.0;
+  float g = 2.0 - abs(hue * 6.0 - 2.0);
+  float b = 2.0 - abs(hue * 6.0 - 4.0);
+  return clamp(vec3(r, g, b), 0.0, 1.0);
+}
+
+vec3 hsl2rgb(vec3 hsl){
+  vec3 rgb = hue2rgb(hsl.x);
+  float c = (1.0 - abs(2.0 * hsl.z - 1.0)) * hsl.y;
+  return (rgb - 0.5) * c + hsl.z;
+}
+
+void main() {
+  vec2 p = vec2(gl_FragCoord.x,1.0 / unit.y - gl_FragCoord.y);
+  float alt = dot(texture2D(image,p * unit),rgb2alt);
+  float hue = mod((1.0 - (alt - argv[0]) / (argv[1] - argv[0])) * 0.5,1.0);
+//  float hue = clamp(mod(alt - argv[0],argv[1] - argv[0]),0.0,1.0);
+  gl_FragColor = (alt < 0.0 || alt > 4000.0) ? vec4(0,0,0,0) : vec4(hsl2rgb(vec3(hue,0.5,0.5)),1.0);
+}`
+    }).addTo(map);
+
+    $("#low").on("change input", function() {
+      relief.options.argv[0] = parseInt($(this).val());
+      relief.repaint(true);
+    });
+
+    $("#high").on("change input", function() {
+      relief.options.argv[1] = parseInt($(this).val());
+      relief.repaint(true);
+    }).change();
+
+
+    var hillshade = L.tileLayer.glue("https://cyberjapandata.gsi.go.jp/xyz/dem_png/{z}/{x}/{y}.png", {
+      attribution: "<a href='http://maps.gsi.go.jp/development/ichiran.html'>GSI</a>",
+      maxZoom: 16,
+      maxNativeZoom: 15,
+      argv: [0, 0, 0, 0],
+      fragmentShader: `
+precision mediump float;
+uniform sampler2D image;
+uniform vec2 unit;
+uniform float zoom;
+uniform vec4 argv;
+const vec4 rgb2alt = vec4(256 * 256, 256 , 1, 0) * 256.0 * 0.01;
+void main() {
+float angle = argv[0];
+float alpha = argv[1] * 10.0 / 100.0;
+vec2 p = vec2(gl_FragCoord.x,1.0 / unit.y - gl_FragCoord.y);
+float c = dot(texture2D(image,(p + vec2(0,0)) * unit),rgb2alt);
+float e = dot(texture2D(image,(p + vec2(1,0)) * unit),rgb2alt);
+float n = dot(texture2D(image,(p + vec2(0,-1)) * unit),rgb2alt);
+float w = dot(texture2D(image,(p + vec2(-1,0)) * unit),rgb2alt);
+float s = dot(texture2D(image,(p + vec2(0,1)) * unit),rgb2alt);
+float v = angle < 90.0 ? e * (1.0 - angle / 90.0) + n * angle / 90.0
+ : angle < 180.0 ? n * (1.0 - (angle - 90.0) / 90.0) + w * (angle - 90.0) / 90.0
+ : angle < 270.0 ? w * (1.0 - (angle - 180.0) / 90.0) + s * (angle - 180.0) / 90.0
+ : s * (1.0 - (angle - 270.0) / 90.0) + e * (angle - 270.0) / 90.0 ;
+gl_FragColor = vec4(0,0,0,clamp(alpha*(c - v) / exp2(17.0 - zoom),0.0,0.75));
+}`
+    }).addTo(map);
+
+    $("#hillshade").on("change input", function() {
+      hillshade.options.argv[0] = $(this).val();
+      hillshade.repaint(true);
+    }).change();
+
+    $("#koi").on("change input", function() {
+      hillshade.options.argv[1] = $(this).val();
+      hillshade.repaint(true);
+    }).change();
+
+
+    var contour = L.tileLayer.glue("https://cyberjapandata.gsi.go.jp/xyz/dem_png/{z}/{x}/{y}.png", {
+      attribution: "<a href='http://maps.gsi.go.jp/development/ichiran.html'>GSI</a>",
+      maxZoom: 16,
+      maxNativeZoom: 15,
+      argv: [100, 0, 0, 0],
+      fragmentShader: `
+precision mediump float;
+uniform sampler2D image;
+uniform vec2 unit;
+uniform vec4 argv;
+const vec4 rgb2alt = vec4(256 * 256, 256 , 1, 0) * 256.0 * 0.01;
+void main() {
+  vec2 p = vec2(gl_FragCoord.x,1.0 / unit.y - gl_FragCoord.y);
+  float interval = argv[0];
+  float h1 = floor(dot(texture2D(image,(p + vec2(0,0)) * unit),rgb2alt) / interval);
+  float h2 = floor(dot(texture2D(image,(p + vec2(1,0)) * unit),rgb2alt) / interval);
+  float h3 = floor(dot(texture2D(image,(p + vec2(0,1)) * unit),rgb2alt) / interval);
+  float h4 = floor(dot(texture2D(image,(p + vec2(1,1)) * unit),rgb2alt) / interval);
+  gl_FragColor = (h1!=h2 || h1!=h3 || h1!=h4) ? vec4(0,0,0,0.5) : vec4(0,0,0,0);
+}`
+    }).addTo(map);
+
+    $("#contour").on("change input", function() {
+      contour.options.argv[0] = parseInt($(this).val());
+      contour.repaint(true);
+    }).change();
+  </script>
+</body>
+
+</html>

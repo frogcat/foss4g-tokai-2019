@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="UTF-8">
+  <title>00 dem</title>
+  <meta name="viewport" content="initial-scale=1.0, maximum-scale=1.0" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.5.1/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.5.1/dist/leaflet.js"></script>
+  <script src="https://frogcat.github.io/leaflet-tilelayer-glue/leaflet-tilelayer-glue.js"></script>
+  <script src="https://unpkg.com/leaflet-hash@0.2.1/leaflet-hash.js"></script>
+  <link rel="stylesheet" href="style.css" />
+</head>
+
+<body>
+  <div id="map"></div>
+  <script>
+    var map = L.map("map", L.extend({
+      zoom: 10,
+      center: [35.4333, 138.8864]
+    }, L.Hash.parseHash(location.hash)));
+    map.zoomControl.setPosition("bottomright");
+    L.hash(map);
+
+    L.tileLayer("https://cyberjapandata.gsi.go.jp/xyz/dem_png/{z}/{x}/{y}.png", {
+      attribution: "<a href='http://maps.gsi.go.jp/development/ichiran.html'>GSI</a>",
+      maxNativeZoom: 15,
+      crossOrigin: true
+    }).addTo(map);
+  </script>
+</body>
+
+</html>

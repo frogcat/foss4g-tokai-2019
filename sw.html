@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="UTF-8">
+  <title>service worker installer</title>
+</head>
+
+<body>
+  <script>
+    navigator.serviceWorker.register('./sw.js').then(registration => {
+      console.log("done");
+    });
+  </script>
+</body>
+
+</html>

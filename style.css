@@ -1,0 +1,29 @@
+ #map {
+   position: absolute;
+   top: 0;
+   left: 0;
+   bottom: 0;
+   right: 0;
+ }
+
+ #ctrl {
+   position: absolute;
+   top: 5px;
+   left: 5px;
+   width: auto;
+   height: auto;
+   z-index: 2000;
+   background: rgba(0, 0, 0, 0.75);
+   color: white;
+   padding: 5px;
+ }
+
+ #ctrl ul {
+   list-style: none;
+   margin: 0;
+   padding: 0;
+ }
+
+ #ctrl li>* {
+   vertical-align: middle;
+ }

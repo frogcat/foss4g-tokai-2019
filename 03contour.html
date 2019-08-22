@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="UTF-8">
+  <title>03contour</title>
+  <meta name="viewport" content="initial-scale=1.0, maximum-scale=1.0" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.5.1/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.5.1/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/zepto@1.2.0/dist/zepto.min.js"></script>
+  <script src="https://frogcat.github.io/leaflet-tilelayer-glue/leaflet-tilelayer-glue.js"></script>
+  <script src="https://unpkg.com/leaflet-hash@0.2.1/leaflet-hash.js"></script>
+  <link rel="stylesheet" href="style.css" />
+</head>
+
+<body>
+  <div id="map"></div>
+  <div id="ctrl">
+    <ul>
+      <li><label for="contour">間</label><input type="range" id="contour" min="1" max="200" /></li>
+    </ul>
+  </div>
+  <script>
+    var map = L.map("map", L.extend({
+      zoom: 10,
+      center: [35.4333, 138.8864]
+    }, L.Hash.parseHash(location.hash)));
+    map.zoomControl.setPosition("bottomright");
+    L.hash(map);
+
+    var contour = L.tileLayer.glue("https://cyberjapandata.gsi.go.jp/xyz/dem_png/{z}/{x}/{y}.png", {
+      attribution: "<a href='http://maps.gsi.go.jp/development/ichiran.html'>GSI</a>",
+      maxZoom: 16,
+      maxNativeZoom: 15,
+      argv: [100, 0, 0, 0],
+      fragmentShader: `
+precision mediump float;
+uniform sampler2D image;
+uniform vec2 unit;
+uniform vec4 argv;
+const vec4 rgb2alt = vec4(256 * 256, 256 , 1, 0) * 256.0 * 0.01;
+void main() {
+  vec2 p = vec2(gl_FragCoord.x,1.0 / unit.y - gl_FragCoord.y);
+  float interval = argv[0];
+  float h1 = floor(dot(texture2D(image,(p + vec2(0,0)) * unit),rgb2alt) / interval);
+  float h2 = floor(dot(texture2D(image,(p + vec2(1,0)) * unit),rgb2alt) / interval);
+  float h3 = floor(dot(texture2D(image,(p + vec2(0,1)) * unit),rgb2alt) / interval);
+  float h4 = floor(dot(texture2D(image,(p + vec2(1,1)) * unit),rgb2alt) / interval);
+  gl_FragColor = (h1!=h2 || h1!=h3 || h1!=h4) ? vec4(0,0,0,0.5) : vec4(0,0,0,0);
+}`
+    }).addTo(map);
+
+    $("#contour").on("change input", function() {
+      contour.options.argv[0] = parseInt($(this).val());
+      contour.repaint(true);
+    }).change();
+  </script>
+</body>
+
+</html>

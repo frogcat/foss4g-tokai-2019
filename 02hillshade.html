@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+  <meta charset="UTF-8">
+  <title>02hillshade</title>
+  <meta name="viewport" content="initial-scale=1.0, maximum-scale=1.0" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.5.1/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.5.1/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/zepto@1.2.0/dist/zepto.min.js"></script>
+  <script src="https://frogcat.github.io/leaflet-tilelayer-glue/leaflet-tilelayer-glue.js"></script>
+  <script src="https://unpkg.com/leaflet-hash@0.2.1/leaflet-hash.js"></script>
+  <link rel="stylesheet" href="style.css" />
+</head>
+
+<body>
+  <div id="map"></div>
+  <div id="ctrl">
+    <ul>
+      <li><label for="hillshade">影</label><input type="range" id="hillshade" min="0" max="360" value="300" /></li>
+      <li><label for="koi">濃</label><input type="range" id="koi" min="0" max="100" value="25" /></li>
+    </ul>
+  </div>
+  <script>
+    var map = L.map("map", L.extend({
+      zoom: 10,
+      center: [35.4333, 138.8864]
+    }, L.Hash.parseHash(location.hash)));
+    map.zoomControl.setPosition("bottomright");
+    L.hash(map);
+
+    var hillshade = L.tileLayer.glue("https://cyberjapandata.gsi.go.jp/xyz/dem_png/{z}/{x}/{y}.png", {
+      attribution: "<a href='http://maps.gsi.go.jp/development/ichiran.html'>GSI</a>",
+      maxZoom: 16,
+      maxNativeZoom: 15,
+      argv: [0, 0, 0, 0],
+      fragmentShader: `
+precision mediump float;
+uniform sampler2D image;
+uniform vec2 unit;
+uniform float zoom;
+uniform vec4 argv;
+const vec4 rgb2alt = vec4(256 * 256, 256 , 1, 0) * 256.0 * 0.01;
+void main() {
+float angle = argv[0];
+float alpha = argv[1] * 10.0 / 100.0;
+vec2 p = vec2(gl_FragCoord.x,1.0 / unit.y - gl_FragCoord.y);
+float c = dot(texture2D(image,(p + vec2(0,0)) * unit),rgb2alt);
+float e = dot(texture2D(image,(p + vec2(1,0)) * unit),rgb2alt);
+float n = dot(texture2D(image,(p + vec2(0,-1)) * unit),rgb2alt);
+float w = dot(texture2D(image,(p + vec2(-1,0)) * unit),rgb2alt);
+float s = dot(texture2D(image,(p + vec2(0,1)) * unit),rgb2alt);
+float v = angle < 90.0 ? e * (1.0 - angle / 90.0) + n * angle / 90.0
+ : angle < 180.0 ? n * (1.0 - (angle - 90.0) / 90.0) + w * (angle - 90.0) / 90.0
+ : angle < 270.0 ? w * (1.0 - (angle - 180.0) / 90.0) + s * (angle - 180.0) / 90.0
+ : s * (1.0 - (angle - 270.0) / 90.0) + e * (angle - 270.0) / 90.0 ;
+gl_FragColor = vec4(0,0,0,clamp(alpha*(c - v) / exp2(17.0 - zoom),0.0,0.75));
+}`
+    }).addTo(map);
+
+    $("#hillshade").on("change input", function() {
+      hillshade.options.argv[0] = $(this).val();
+      hillshade.repaint(true);
+    }).change();
+
+    $("#koi").on("change input", function() {
+      hillshade.options.argv[1] = $(this).val();
+      hillshade.repaint(true);
+    }).change();
+  </script>
+</body>
+
+</html>

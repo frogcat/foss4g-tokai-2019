@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+
+  <head>
+    <meta charset="UTF-8">
+    <title>06 csmap</title>
+    <meta name="viewport" content="initial-scale=1.0, maximum-scale=1.0" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.5.1/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.5.1/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/zepto@1.2.0/dist/zepto.min.js"></script>
+    <script src="https://frogcat.github.io/csmap/gl.js"></script>
+    <script src="https://unpkg.com/leaflet-hash@0.2.1/leaflet-hash.js"></script>
+    <link rel="stylesheet" href="style.css" />
+    <script>
+      var vertexShader = "attribute vec2 xy;void main(){gl_Position = vec4(xy,0,1);}";
+
+      var fragmentShader =
+        `
+  precision mediump float;
+  uniform sampler2D fine;
+  uniform sampler2D blur;
+  uniform mat3 matrix;
+  uniform float bias;
+  uniform vec4 argv;
+
+  const vec4 color_concave = vec4(0.08,0,0.25,1);
+  const vec4 color_flat = vec4(1,1,1,0);
+  const vec4 color_convex = vec4(0.6,0,0,1);
+  const vec4 color_horizontal = vec4(0.90,0.85,0.80,1);
+  const vec4 color_vertical = vec4(0.22,0.15,0.10,1);
+  const vec4 rgba2alt = vec4(256.0 * 256.0 * 2.56, 256.0 * 2.56, 2.56, 0.0);
+
+  vec4 b(int x,int y){
+    vec4 a = texture2D(blur, (matrix * (gl_FragCoord.xyw + vec3(x,y,0))).xy);
+    return a.r < 0.5 ? a : vec4(0);
+  }
+
+  vec4 f(int x,int y){
+    vec4 a = texture2D(fine, (matrix * (gl_FragCoord.xyw + vec3(x,y,0))).xy);
+    return a.r < 0.5 ? a : vec4(0);
+  }
+
+  vec4 main1() {
+    vec4 s = b(0,-1) + b(-1,0) + b(0,0) + b(1,0) + b(0,1);
+    float z = dot(s/s.a,rgba2alt);
+    return vec4(
+      floor(z / 256.0 / 256.0 / 0.01) / 256.0,
+      mod(floor(z / 256.0 / 0.01), 256.0) / 256.0,
+      mod(floor(z / 0.01), 256.0) / 256.0,
+      1.0
+    );
+  }
+
+  vec4 main2() {
+    vec4 sx = (f(1,-1) + f(1,0)*2.0 + f(1,1)) - (f(-1,-1) + f(-1,0)*2.0 + f(-1,1));
+    vec4 sy = (f(1,-1) + f(0,-1)*2.0 + f(-1,-1)) -  (f(1,1)+ f(0,1)*2.0 + f(-1,1));
+    float slope = sqrt(length(vec2(dot(sx * bias,rgba2alt),dot(sy * bias,rgba2alt))));
+    vec4 color1 = mix(color_horizontal,color_vertical,clamp(slope*0.25*argv[0],0.0,1.0));
+
+    vec4 s = b(0,0) * 4.0 - b(-1,0) - b(1,0) - b(0,1) - b(0,-1);
+    float curvature = clamp(dot(s * bias,rgba2alt) * 5.0 * argv[1], -0.25, 0.25);
+    vec4 color2 = curvature < 0.0 ? color_concave : color_convex;
+    return color2 * abs(curvature) + color1 * (1.0 - abs(curvature));
+  }
+
+  void main() {
+    gl_FragColor = matrix[1][1] > 0.0 ? main1() : main2();
+  }
+  `;
+      var CSLayer = L.TileLayer.extend({
+        options: {
+          crossOrigin: true,
+          vertexShader: vertexShader,
+          fragmentShader: fragmentShader,
+          errorTileColor: "#7f0000",
+          argv: [1.0, 1.0, 0.0, 0.0],
+          blur: 8
+        },
+        _initContainer: function() {
+          L.TileLayer.prototype._initContainer.call(this);
+
+          var canvas = this._canvas = document.createElement('canvas');
+          canvas.style.zIndex = 10000;
+          canvas.style.position = "absolute";
+
+          this._gl = $gl(canvas.getContext('webgl'))
+            .shader(this.options.vertexShader)
+            .shader(this.options.fragmentShader);
+
+        },
+        _onMoveEnd: function() {
+          L.TileLayer.prototype._onMoveEnd.call(this);
+          this.repaint(false);
+        },
+        _tileOnLoad: function(done, tile) {
+          L.TileLayer.prototype._tileOnLoad.call(this, done, tile);
+          tile.style.display = "none";
+          this.repaint(false);
+        },
+        repaint: function(immediate) {
+          L.Util.requestAnimFrame(this._doPaint, this, immediate);
+        },
+        _doPaint: function() {
+
+          if (!this._map) return;
+
+          var center = this._map.getCenter();
+          var pixelBounds = this._getTiledPixelBounds(center);
+          var tileRange = this._pxBoundsToTileRange(pixelBounds);
+          var size = tileRange.getSize().add([1, 1]).scaleBy(this.getTileSize());
+          var canvas = this._canvas;
+          var gl = this._gl;
+
+          if (canvas.width !== size.x || canvas.height !== size.y) {
+            canvas.width = size.x;
+            canvas.height = size.y;
+            canvas.style.width = size.x + "px";
+            canvas.style.height = size.y + "px";
+            gl.viewport(0, 0, size.x, size.y);
+          }
+
+          var shadow = document.createElement("canvas");
+          shadow.width = size.x;
+          shadow.height = size.y;
+
+          var context = shadow.getContext("2d");
+          context.fillStyle = this.options.errorTileColor;
+          context.fillRect(0, 0, size.x, size.y);
+          var origin = this._getTilePos(tileRange.min);
+          for (var key in this._tiles) {
+            var tile = this._tiles[key];
+            if (tile.current) {
+              var pos = this._getTilePos(tile.coords).subtract(origin);
+              try {
+                context.drawImage(tile.el, pos.x, pos.y);
+              } catch (ex) {}
+            }
+          }
+
+          this._level.el.appendChild(canvas);
+          L.DomUtil.setPosition(canvas, origin);
+
+          gl.texture(0, shadow)
+            .texture(1, shadow)
+            .texture(2, shadow)
+            .bind("xy", [-1, -1, 1, -1, -1, 1, 1, 1])
+            .bind("matrix", [1 / shadow.width, 0, 0, 0, 1 / shadow.height, 0, 0, 0, 0])
+            .bind("bias", 1 / Math.pow(2, 17 - this._tileZoom))
+            .bind("fine", 2);
+
+          var x = [0, 1];
+          for (var i = 0; i < this.options.blur; i++) {
+            x.push(x.shift());
+            gl.bind("blur", x[0]).triangleStrip(x[1]);
+          }
+          gl.bind("blur", x[1])
+            .bind("matrix", [1 / shadow.width, 0, 0, 0, -1 / shadow.height, 0, 0, 1, 0])
+            .bind("argv", this.options.argv)
+            .triangleStrip();
+
+        }
+      });
+    </script>
+  </head>
+
+<body>
+  <div id="map"></div>
+  <div id="ctrl">
+    <ul>
+      <li><label for="curvature">C</label><input type="range" id="curvature" min="1" max="100" value="50" /></li>
+      <li><label for="slope">S</label><input type="range" id="slope" min="1" max="100" value="50" /></li>
+      <li><label for="blur">B</label><input type="range" id="blur" min="0" max="16" value="8" step="2" /></li>
+    </ul>
+  </div>
+
+  <script>
+    var map = L.map("map", L.extend({
+      zoom: 10,
+      center: [35.4333, 138.8864]
+    }, L.Hash.parseHash(location.hash)));
+    map.zoomControl.setPosition("bottomright");
+    L.hash(map);
+
+    var layer = (new CSLayer("https://cyberjapandata.gsi.go.jp/xyz/dem_png/{z}/{x}/{y}.png", {
+      attribution: "<a href='http://maps.gsi.go.jp/development/ichiran.html'>地理院タイル</a>",
+      maxZoom: 18,
+      maxNativeZoom: 15
+    })).addTo(map);
+
+    $("#ctrl input").on("change input", function() {
+      var curvature = parseFloat($("#curvature").val());
+      var slope = parseFloat($("#slope").val());
+      var blur = parseInt($("#blur").val());
+      layer.options.argv[0] = slope / 50;
+      layer.options.argv[1] = curvature / 50;
+      layer.options.blur = blur;
+      layer.repaint();
+    }).eq(1).trigger("input");
+  </script>
+</body>
+
+</html>
